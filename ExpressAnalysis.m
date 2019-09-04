@@ -22,7 +22,7 @@ function varargout = ExpressAnalysis(varargin)
 
 % Edit the above text to modify the response to help ExpressAnalysis
 
-% Last Modified by GUIDE v2.5 13-Jul-2018 10:53:47
+% Last Modified by GUIDE v2.5 04-Jun-2019 15:32:00
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -100,7 +100,7 @@ dirCont = dir(scanDrct);%content of directory
 
 set(textMsgs, 'String', {});
 clear fBase;
-fBase(1:1000) = struct('srcFile', '', 'cscN', [], 'type', '', 'matFile', '');
+fBase(1:1000) = struct('srcFile', '', 'cscN', [], 'chnlGrp', [], 'type', '', 'matFile', '');
 w = 1;%files counter
 ii = zeros(1000, 1);%file order
 for t = 3:length(dirCont) %run over directory content
@@ -118,6 +118,36 @@ for t = 3:length(dirCont) %run over directory content
                     end
                 end
             end
+            
+            %find config file (read log)
+            fid = fopen([fBase(w).srcFile, 'CheetahLogFile.txt'], 'r');
+            clgfl = char(fread(fid)');
+            fclose(fid);
+            cfgIn = strfind(clgfl, 'NexusConfigs\');%starting indices of config file extensions
+            if ~isempty(cfgIn) %subdirectory exist
+                bufStr = clgfl(cfgIn(end) + (13:60));%part of configfile pathname
+                z = strfind(bufStr, '.cfg');
+                cfgfl = bufStr(1:(z(1) + 3));
+                fBase(w).chnlGrp = cell(0);
+                if isequal(cfgfl, 'A1x16_Brd1_double_4piezo_7emg_termo.cfg')
+                    fBase(w).chnlGrp(1) = {1:16}; fBase(w).chnlGrp(2) = {17:32}; fBase(w).chnlGrp(3) = {33:44};
+                elseif isequal(cfgfl, 'A1x16_Brd1_double_4piezo_4emg_4DCdiff.cfg')
+                    fBase(w).chnlGrp(1) = {1:16}; fBase(w).chnlGrp(2) = {17:32}; fBase(w).chnlGrp(3) = {33:44};
+                elseif isequal(cfgfl, 'A1x32_Brd1_double_4piezo_4emg_4DCdiff.cfg')
+                    fBase(w).chnlGrp(1) = {1:32}; fBase(w).chnlGrp(2) = {33:64}; fBase(w).chnlGrp(3) = {65:76};
+                elseif isequal(cfgfl, 'A1x32_Brd1_double_4piezo_4emg_2DCdiff.cfg')
+                    fBase(w).chnlGrp(1) = {1:32}; fBase(w).chnlGrp(2) = {33:64}; fBase(w).chnlGrp(3) = {65:74};
+                elseif isequal(cfgfl, 'A1x32_Brd2_4piezo_4emg_4DCdiff.cfg')
+                    fBase(w).chnlGrp(1) = {1:32}; fBase(w).chnlGrp(2) = {33:44};
+                elseif isequal(cfgfl, 'A1x16_Brd1_double_piezo_ecg_ZAV_diff.cfg')
+                    fBase(w).chnlGrp(1) = {1:16}; fBase(w).chnlGrp(2) = {17:32}; fBase(w).chnlGrp(3) = {33:36};
+                elseif isequal(cfgfl, 'A1x16_Brd1_double_4piezo.cfg')
+                    fBase(w).chnlGrp(1) = {1:16}; fBase(w).chnlGrp(2) = {17:32}; fBase(w).chnlGrp(3) = {33:36};
+                elseif isequal(cfgfl, 'A1x16_Brd2_double_4piezo.cfg')
+                    fBase(w).chnlGrp(1) = {1:16}; fBase(w).chnlGrp(2) = {17:32}; fBase(w).chnlGrp(3) = {33:36};
+                end
+            end
+            
             ii(w) = t;%files order
             w = w + 1;%next file
         end
@@ -209,42 +239,49 @@ textMsgs = handles.TextMsgs;%messeges
 fBase = getappdata(expAn, 'fBase');%list of files
 rList = get(handles.recList, 'Data');%list of wanted files
 rList = vertcat(rList{:, 2});%flags of accepted files
-nlxVer = get(handles.IsNewCheetah, 'Value');%- version ov NLX data (0 - initial, 1 - new, ...)
-for t = 1:length(fBase) %run over records
-    if rList(t) %treat wanted files only
-        if isempty(fBase(t).matFile) %non converted data
-            if isequal(fBase(t).type, 'NLX') %NLX
-                ttl = Nlx2MatEV([fBase(t).srcFile, 'Events.nev'], [0 0 1 0 0], 0, 1, []);%stimulus pattern
+for rf = 1:length(fBase) %run over records
+    if rList(rf) %treat wanted files only
+        if isempty(fBase(rf).matFile) %non converted data
+            if isequal(fBase(rf).type, 'NLX') %NLX
+                nlxVer = 0;%old format of Cheetah log-file
+                dirCnt = dir(fBase(rf).srcFile);%directory content
+                for z = 3:length(dirCnt) %run over files in NLX directory
+                    if ((length(dirCnt(z).name) > 3) && isequal(dirCnt(z).name(end - 3:end), '.nde'))
+                        nlxVer = 1;%new format of Cheetah log-file
+                        break;%out of (for z)
+                    end
+                end
+                ttl = Nlx2MatEV([fBase(rf).srcFile, 'Events.nev'], [0 0 1 0 0], 0, 1, []);%stimulus pattern
                 try
-                    ZavSoursAnalys(fBase(t).srcFile, 1, any(ttl > 0), [], 1:fBase(t).cscN, [], nlxVer);%convertation
-                    fBase(t).matFile = [fBase(t).srcFile(1:(end - 1)), '.mat'];%corresponding mat-file
+                    ZavSoursAnalys(fBase(rf).srcFile, 1, any(ttl > 0), [], 1:fBase(rf).cscN, fBase(rf).chnlGrp, nlxVer);%convertation
+                    fBase(rf).matFile = [fBase(rf).srcFile(1:(end - 1)), '.mat'];%corresponding mat-file
                 catch errMess
                     msgs = get(textMsgs, 'String');
-                    msgs{end + 1} = ['error on ', fBase(t).srcFile, ' :=:', errMess.message];
+                    msgs{end + 1} = ['error on ', fBase(rf).srcFile, ' :=:', errMess.message];
                     set(textMsgs, 'String', msgs);
                 end
             else %DAQ or ABF
                 try
-                    isStim = true;
-                    ZavSoursAnalys(fBase(t).srcFile, 1, isStim, [], [], [], 0);%convertation
-                    fBase(t).matFile = [fBase(t).srcFile(1:(end - 4)), '.mat'];%corresponding mat-file
+                    isStim = false;%evoked or spontaneous activity
+                    ZavSoursAnalys(fBase(rf).srcFile, 1, isStim, [], [], [], 0);%convertation
+                    fBase(rf).matFile = [fBase(rf).srcFile(1:(end - 4)), '.mat'];%corresponding mat-file
                 catch errMess
                     msgs = get(textMsgs, 'String');
-                    msgs{end + 1} = ['error on ', fBase(t).srcFile, ' :=:', errMess.message];
+                    msgs{end + 1} = ['error on ', fBase(rf).srcFile, ' :=:', errMess.message];
                     set(textMsgs, 'String', msgs);
                 end
             end
         end
         msgs = get(textMsgs, 'String');
-        msgs{end + 1} = [num2str(t), ' of ', num2str(length(fBase)), ' done (', num2str(fBase(t).cscN), ' csc)'];
+        msgs{end + 1} = [num2str(rf), ' of ', num2str(length(fBase)), ' done (', num2str(fBase(rf).cscN), ' csc)'];
         set(textMsgs, 'String', msgs);
 
         %treatAllRecs = isequal(get(handles.TreatAllRecords, 'State'), 'on');%treat all records
-        if (isequal(get(handles.TreatAllRecords, 'State'), 'on') && ~isempty(fBase(t).matFile)) %treat all records
+        if (isequal(get(handles.TreatAllRecords, 'State'), 'on') && ~isempty(fBase(rf).matFile)) %treat all records
             %send parameters of current file
-            k = find(fBase(t).matFile == '\', 1, 'last');
-            pth = fBase(t).matFile(1:k);%directory
-            flNm = fBase(t).matFile((k + 1):end);%filename
+            k = find(fBase(rf).matFile == '\', 1, 'last');
+            pth = fBase(rf).matFile(1:k);%directory
+            flNm = fBase(rf).matFile((k + 1):end);%filename
             setappdata(expAn, 'pth', pth);%path
             setappdata(expAn, 'flNm', flNm);%file
             if isempty(get(handles.PrincChan, 'String')) %request principal channel
@@ -1741,3 +1778,22 @@ flNm = fBase(1).srcFile((z + 1):(k - 1));%directory name
 % % plot(bins, repmat(ylim', 1, size(bins, 2)), '--k', 'LineWidth', 2)
 % % set(get(gca, 'YLabel'), 'String', 'MUA2t / MUA1t')
 % % set(gcf, 'FileName', [pf, 'MUA2t-MUA1t.emf'], 'Name', [flNm, ' MUA2t-MUA1t'], 'NumberTitle', 'off')
+
+
+% --- Executes when selected cell(s) is changed in recList.
+function recList_CellSelectionCallback(hObject, eventdata, handles)
+% hObject    handle to recList (see GCBO)
+% eventdata  structure with the following fields (see UITABLE)
+%	Indices: row and column indices of the cell(s) currently selecteds
+% handles    structure with handles and user data (see GUIDATA)
+
+ii = unique(eventdata.Indices(:, 1));%indices of selected rows
+if ((length(ii) > 1) && all(diff(ii) == 1) && all(eventdata.Indices(:, 2) == 2)) %change channels selection
+    recListData = get(handles.recList, 'Data');%read current table content
+    jj = horzcat(recListData{ii(:, 1), 2});%selection falgs
+    trg = ~(sum(jj) >= sum(~jj));%target value (prevailing selection)
+    for z = ii(:, 1)' %run over raws
+        recListData{z, 2} = trg;%change value of selected cells (set prevailing value)
+    end
+    set(handles.recList, 'Data', recListData)%set table data
+end
